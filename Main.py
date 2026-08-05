@@ -4,12 +4,12 @@ import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import requests
 
-# ================= 1. FAKE WEB SERVER (Render Port Fix) =================
+# ================= 1. FAKE WEB SERVER =================
 class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b"JACK VIP MODS RUNNING")
+        self.wfile.write(b"JACK VIP MODS ACTIVE 24/7")
 
 def run_web_server():
     port = int(os.environ.get("PORT", 10000))
@@ -36,18 +36,17 @@ def send_telegram_msg(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"}
     try:
-        res = requests.post(url, json=payload, timeout=10)
-        print("Telegram Log:", res.status_code, res.text)
+        requests.post(url, json=payload, timeout=10)
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Telegram Exception: {e}")
 
 def get_latest_history():
     try:
-        res = requests.get(API_URL, headers=HEADERS, timeout=10)
+        res = requests.get(API_URL, headers=HEADERS, timeout=5)
         if res.status_code == 200:
             data = res.json()
-            if isinstance(data, dict) and "data" in data:
-                return data.get("data", {}).get("list", [])
+            if isinstance(data, dict) and "data" in data and "list" in data["data"]:
+                return data["data"]["list"]
     except Exception as e:
         print(f"API Fetch Error: {e}")
     return []
@@ -73,18 +72,21 @@ def calculate_prediction(history_list):
         small_count = trend.count("SMALL")
         return "SMALL" if small_count >= 3 else "BIG"
 
-print("Starting Continuous Bot...")
-send_telegram_msg("⚡ *JACK VIP MODS ENGINE ONLINE*\nContinuous Prediction Started!")
+# Startup Announcement
+send_telegram_msg("⚡ *JACK VIP ENGINE ONLINE*\nContinuous Predictions Auto-Syncing...")
 
+# Main Reliable Loop
 while True:
     try:
         history = get_latest_history()
-        if history:
+        
+        if history and len(history) > 0:
             current = history[0]
-            current_issue = current["issueNumber"]
+            current_issue = str(current["issueNumber"])
 
             if last_id != current_issue:
-                if last_id is not None:
+                # Check previous prediction result
+                if last_id is not None and saved_pred is not None:
                     actual_num = int(current["number"])
                     actual_size = "BIG" if actual_num >= 5 else "SMALL"
                     win = (saved_pred == actual_size)
@@ -97,7 +99,9 @@ while True:
                         status_msg = f"❌ *FAILED* (Issue: `{current_issue[-3:]}`)\nResult: *{actual_size}* ({actual_num})"
 
                     send_telegram_msg(status_msg)
+                    time.sleep(1)
 
+                # Generate new prediction
                 final_prediction = calculate_prediction(history)
 
                 if current_step > 6:
@@ -118,6 +122,7 @@ while True:
                 send_telegram_msg(msg)
 
     except Exception as e:
-        print("Loop Error:", e)
+        print(f"Error in main loop: {e}")
 
+    # 3 Seconds sleep to avoid heavy spam but fast enough to catch 1-minute issue
     time.sleep(3)
