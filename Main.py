@@ -4,16 +4,17 @@ import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import requests
 
-# ================= 1. FAKE WEB SERVER =================
+# ================= 1. FAKE WEB SERVER FOR RENDER =================
 class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b"JACK VIP MODS ACTIVE 24/7")
+        self.wfile.write(b"JACK VIP MODS ACTIVE")
 
 def run_web_server():
     port = int(os.environ.get("PORT", 10000))
     server = HTTPServer(('0.0.0.0', port), SimpleHTTPRequestHandler)
+    print(f"Web server started on port {port}")
     server.serve_forever()
 
 threading.Thread(target=run_web_server, daemon=True).start()
@@ -24,8 +25,9 @@ CHAT_ID = "@damanwolf022"
 API_URL = "https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json"
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Accept": "application/json, text/plain, */*"
+    "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Referer": "https://ar-lottery01.com/"
 }
 
 current_step = 1
@@ -36,23 +38,24 @@ def send_telegram_msg(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"}
     try:
-        requests.post(url, json=payload, timeout=10)
+        res = requests.post(url, json=payload, timeout=10)
+        print(f"Telegram Post Status: {res.status_code}")
     except Exception as e:
-        print(f"Telegram Exception: {e}")
+        print(f"Telegram Error: {e}")
 
 def get_latest_history():
     try:
-        res = requests.get(API_URL, headers=HEADERS, timeout=5)
+        res = requests.get(API_URL, headers=HEADERS, timeout=8)
         if res.status_code == 200:
             data = res.json()
             if isinstance(data, dict) and "data" in data and "list" in data["data"]:
                 return data["data"]["list"]
     except Exception as e:
-        print(f"API Fetch Error: {e}")
-    return []
+        print(f"Fetch Waiting/Error: {e}")
+    return None
 
 def calculate_prediction(history_list):
-    if len(history_list) < 5:
+    if not history_list or len(history_list) < 5:
         return "BIG"
 
     trend = ["BIG" if int(x["number"]) >= 5 else "SMALL" for x in history_list[:5]]
@@ -72,10 +75,9 @@ def calculate_prediction(history_list):
         small_count = trend.count("SMALL")
         return "SMALL" if small_count >= 3 else "BIG"
 
-# Startup Announcement
-send_telegram_msg("⚡ *JACK VIP ENGINE ONLINE*\nContinuous Predictions Auto-Syncing...")
+print("Starting Continuous Bot Loop...")
+send_telegram_msg("🚀 *JACK VIP MODS LIVE ENGINE STARTED*\nFetching predictions...")
 
-# Main Reliable Loop
 while True:
     try:
         history = get_latest_history()
@@ -85,7 +87,7 @@ while True:
             current_issue = str(current["issueNumber"])
 
             if last_id != current_issue:
-                # Check previous prediction result
+                # 1. Result Update for previous period
                 if last_id is not None and saved_pred is not None:
                     actual_num = int(current["number"])
                     actual_size = "BIG" if actual_num >= 5 else "SMALL"
@@ -101,7 +103,7 @@ while True:
                     send_telegram_msg(status_msg)
                     time.sleep(1)
 
-                # Generate new prediction
+                # 2. Prediction for next period
                 final_prediction = calculate_prediction(history)
 
                 if current_step > 6:
@@ -120,9 +122,9 @@ while True:
                     f"🎲 *NUMBERS:* `{nums_str}`"
                 )
                 send_telegram_msg(msg)
+                print(f"Sent prediction for period {next_period}")
 
     except Exception as e:
-        print(f"Error in main loop: {e}")
+        print(f"Loop Safe Recover: {e}")
 
-    # 3 Seconds sleep to avoid heavy spam but fast enough to catch 1-minute issue
     time.sleep(3)
