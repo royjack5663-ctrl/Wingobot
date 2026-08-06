@@ -1,130 +1,234 @@
-import os
 import time
-import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
 import requests
+from datetime import datetime
+from pytz import timezone
+from apscheduler.schedulers.blocking import BlockingScheduler
 
-# ================= 1. FAKE WEB SERVER FOR RENDER =================
-class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"JACK VIP MODS ACTIVE")
+# ==========================================
+# CONFIGURATION
+# ==========================================
+# 1. Replace with your HTTP API Token from @BotFather
+TELEGRAM_BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN_HERE"
 
-def run_web_server():
-    port = int(os.environ.get("PORT", 10000))
-    server = HTTPServer(('0.0.0.0', port), SimpleHTTPRequestHandler)
-    print(f"Web server started on port {port}")
-    server.serve_forever()
+# 2. Your Telegram Channel username (Must include '@')
+TELEGRAM_CHAT_ID = "@damanwolf022" 
 
-threading.Thread(target=run_web_server, daemon=True).start()
+# 3. Channel URL for branding in messages
+CHANNEL_LINK = "https://t.me/damanwolf022"
 
-# ================= 2. CONFIGURATION =================
-BOT_TOKEN = "8474361108:AAHkJ4K73zE_vxqJDiDcjfs-58GSZs0Vb08"  
-CHAT_ID = "@damanwolf022"
 API_URL = "https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json"
+IST = timezone('Asia/Kolkata')
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
-    "Accept": "application/json, text/plain, */*",
-    "Referer": "https://ar-lottery01.com/"
-}
-
-current_step = 1
-last_id = None
-saved_pred = None
-
-def send_telegram_msg(text):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"}
+# ==========================================
+# TELEGRAM NOTIFICATION HELPER
+# ==========================================
+def send_telegram_message(message):
+    """Sends a formatted message to your Telegram channel using HTML mode."""
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True  # Keeps messages clean without big link previews
+    }
     try:
-        res = requests.post(url, json=payload, timeout=10)
-        print(f"Telegram Post Status: {res.status_code}")
+        response = requests.post(url, json=payload, timeout=10)
+        if not response.ok:
+            print(f"Telegram API Error: {response.text}")
     except Exception as e:
-        print(f"Telegram Error: {e}")
+        print(f"Error sending Telegram message: {e}")
 
-def get_latest_history():
+# ==========================================
+# PREDICTION ENGINE
+# ==========================================
+def get_api_data():
+    """Fetches the latest game history from the server."""
     try:
-        res = requests.get(API_URL, headers=HEADERS, timeout=8)
-        if res.status_code == 200:
-            data = res.json()
-            if isinstance(data, dict) and "data" in data and "list" in data["data"]:
-                return data["data"]["list"]
+        response = requests.get(API_URL, timeout=10)
+        if response.status_code == 200:
+            return response.json().get("data", {}).get("list", [])
     except Exception as e:
-        print(f"Fetch Waiting/Error: {e}")
-    return None
+        print(f"API Fetch Error: {e}")
+    return []
 
-def calculate_prediction(history_list):
-    if not history_list or len(history_list) < 5:
-        return "BIG"
+def calculate_next_prediction(history_list, consecutive_misses):
+    """Calculates the BIG or SMALL prediction based on game history."""
+    if not history_list:
+        return None, None
 
-    trend = ["BIG" if int(x["number"]) >= 5 else "SMALL" for x in history_list[:5]]
-    r1, r2, r3, r4, r5 = trend[0], trend[1], trend[2], trend[3], trend[4]
+    current_issue = history_list[0]
+    issue_number = current_issue.get("issueNumber")
 
-    is_strict_ping_pong = (r1 != r2 and r2 != r3 and r3 != r4 and r4 != r5)
-    is_big_dragon = (r1 == "BIG" and r2 == "BIG" and r3 == "BIG")
-    is_small_dragon = (r1 == "SMALL" and r2 == "SMALL" and r3 == "SMALL")
+    # Dynamic observation length based on consecutive losses
+    observation_length = 5
+    if consecutive_misses == 1:
+        observation_length = 4
+    elif consecutive_misses >= 2:
+        observation_length = 3
 
-    if is_strict_ping_pong:
-        return "SMALL" if r1 == "BIG" else "BIG"
-    elif is_big_dragon:
-        return "BIG"
-    elif is_small_dragon:
-        return "SMALL"
+    # Map numbers to BIG or SMALL
+    observed_history = []
+    for x in history_list[:observation_length]:
+        num = int(x.get("number", 0))
+        observed_history.append("BIG" if num >= 5 else "SMALL")
+
+    if len(observed_history) < 3:
+        return str(int(issue_number) + 1), "BIG"
+
+    r1, r2, r3 = observed_history[0], observed_history[1], observed_history[2]
+    is_chopping = (r1 != r2) and (r2 != r3)
+    is_streak = (r1 == r2) and (r2 == r3)
+
+    if is_chopping:
+        final_prediction = "SMALL" if r1 == "BIG" else "BIG"
+    elif is_streak:
+        final_prediction = r1
     else:
-        small_count = trend.count("SMALL")
-        return "SMALL" if small_count >= 3 else "BIG"
+        big_count = observed_history.count("BIG")
+        small_count = observed_history.count("SMALL")
+        if r1 == "BIG": big_count += 0.5
+        else: small_count += 0.5
+        final_prediction = "BIG" if big_count > small_count else "SMALL"
 
-print("Starting Continuous Bot Loop...")
-send_telegram_msg("🚀 *JACK VIP MODS LIVE ENGINE STARTED*\nFetching predictions...")
+    next_period_id = str(int(issue_number) + 1)
+    return next_period_id, final_prediction
 
-while True:
-    try:
-        history = get_latest_history()
+# ==========================================
+# SESSION LOGIC
+# ==========================================
+def run_session():
+    """Runs a complete prediction session (10+ predictions until final win)."""
+    start_msg = (
+        f"🟢 <b>NEW PREDICTION SESSION STARTED</b> 🟢\n"
+        f"📢 <b>Channel:</b> <a href='{CHANNEL_LINK}'>Daman Wolf Official</a>"
+    )
+    send_telegram_message(start_msg)
+    print(f"[{datetime.now(IST)}] Session started.")
+
+    predictions_made = 0
+    total_wins = 0
+    total_losses = 0
+    current_win_streak = 0
+    current_loss_streak = 0
+    max_win_streak = 0
+    max_loss_streak = 0
+    
+    pending_period = None
+    pending_prediction = None
+
+    while True:
+        history_list = get_api_data()
         
-        if history and len(history) > 0:
-            current = history[0]
-            current_issue = str(current["issueNumber"])
+        if not history_list:
+            time.sleep(10)
+            continue
 
-            if last_id != current_issue:
-                # 1. Result Update for previous period
-                if last_id is not None and saved_pred is not None:
-                    actual_num = int(current["number"])
-                    actual_size = "BIG" if actual_num >= 5 else "SMALL"
-                    win = (saved_pred == actual_size)
-
-                    if win:
-                        current_step = 1
-                        status_msg = f"✅ *SUCCESS* (Issue: `{current_issue[-3:]}`)\nResult: *{actual_size}* ({actual_num})"
-                    else:
-                        current_step += 1
-                        status_msg = f"❌ *FAILED* (Issue: `{current_issue[-3:]}`)\nResult: *{actual_size}* ({actual_num})"
-
-                    send_telegram_msg(status_msg)
-                    time.sleep(1)
-
-                # 2. Prediction for next period
-                final_prediction = calculate_prediction(history)
-
-                if current_step > 6:
-                    current_step = 1
-
-                last_id = current_issue
-                saved_pred = final_prediction
-                next_period = str(int(current_issue) + 1)
-                nums_str = "5, 6, 7, 8, 9" if final_prediction == "BIG" else "0, 1, 2, 3, 4"
-
-                msg = (
-                    f"👑 *JACK VIP MODS | ELITE HACK*\n\n"
-                    f"📌 *PERIOD:* `{next_period}`\n"
-                    f"🎯 *PREDICTION:* *{final_prediction}*\n"
-                    f"📊 *STEP:* `{current_step}`\n"
-                    f"🎲 *NUMBERS:* `{nums_str}`"
+        # 1. Verify previous prediction result
+        if pending_period:
+            actual_result = None
+            for item in history_list:
+                if item.get("issueNumber") == pending_period:
+                    num = int(item.get("number", 0))
+                    actual_result = "BIG" if num >= 5 else "SMALL"
+                    break
+            
+            if actual_result is None:
+                time.sleep(10)
+                continue
+            
+            # WIN / LOSS Check
+            if actual_result == pending_prediction:
+                total_wins += 1
+                current_win_streak += 1
+                current_loss_streak = 0
+                if current_win_streak > max_win_streak: 
+                    max_win_streak = current_win_streak
+                
+                send_telegram_message(
+                    f"✅ <b>WIN!</b> Period {pending_period} was {actual_result}\n"
+                    f"🔗 <a href='{CHANNEL_LINK}'>Join Daman Wolf Channel</a>"
                 )
-                send_telegram_msg(msg)
-                print(f"Sent prediction for period {next_period}")
+                is_last_win = True
+            else:
+                total_losses += 1
+                current_loss_streak += 1
+                current_win_streak = 0
+                if current_loss_streak > max_loss_streak: 
+                    max_loss_streak = current_loss_streak
+                
+                send_telegram_message(
+                    f"❌ <b>LOSS!</b> Period {pending_period} was {actual_result}\n"
+                    f"🔗 <a href='{CHANNEL_LINK}'>Join Daman Wolf Channel</a>"
+                )
+                is_last_win = False
 
-    except Exception as e:
-        print(f"Loop Safe Recover: {e}")
+            # Stop condition: 10 or more predictions made AND the last result was a WIN
+            if predictions_made >= 10 and is_last_win:
+                break
+                
+            pending_period = None 
 
-    time.sleep(3)
+        # 2. Make new prediction
+        next_period, prediction = calculate_next_prediction(history_list, current_loss_streak)
+        
+        pending_period = next_period
+        pending_prediction = prediction
+        predictions_made += 1
+        
+        send_telegram_message(
+            f"📊 <b>PREDICTION #{predictions_made}</b>\n"
+            f"🔹 <b>Period:</b> {next_period}\n"
+            f"🎯 <b>Result:</b> {prediction}\n\n"
+            f"📢 <b>Official Channel:</b> <a href='{CHANNEL_LINK}'>@damanwolf022</a>"
+        )
+
+        # Wait 50 seconds before checking next result (for 1-minute game)
+        time.sleep(50) 
+
+    # ==========================================
+    # SESSION COMPLETE REPORT
+    # ==========================================
+    jobs = scheduler.get_jobs()
+    jobs.sort(key=lambda j: j.next_run_time)
+    
+    next_time_str = "Unknown"
+    for job in jobs:
+        if job.next_run_time > datetime.now(IST):
+            next_time_str = job.next_run_time.strftime("%I:%M %p")
+            break
+
+    report = (
+        f"🏆 <b>SESSION COMPLETE REPORT</b> 🏆\n\n"
+        f"🔹 <b>Total Predictions:</b> {predictions_made}\n"
+        f"✅ <b>Total Wins:</b> {total_wins}\n"
+        f"❌ <b>Total Losses:</b> {total_losses}\n\n"
+        f"🔥 <b>Max Continuous Win:</b> {max_win_streak}\n"
+        f"📉 <b>Max Continuous Loss:</b> {max_loss_streak}\n\n"
+        f"⏰ <b>Next Session Schedule:</b> {next_time_str}\n\n"
+        f"👑 <b>Join Us:</b> <a href='{CHANNEL_LINK}'>Daman Wolf Official Channel</a>"
+    )
+    send_telegram_message(report)
+    print(f"[{datetime.now(IST)}] Session ended. Report sent.")
+
+# ==========================================
+# SCHEDULER SETUP
+# ==========================================
+if __name__ == "__main__":
+    global scheduler
+    scheduler = BlockingScheduler(timezone=IST)
+
+    # Morning Schedule: 07:00 AM, 09:00 AM, 11:00 AM
+    scheduler.add_job(run_session, 'cron', hour=7, minute=0)
+    scheduler.add_job(run_session, 'cron', hour=9, minute=0)
+    scheduler.add_job(run_session, 'cron', hour=11, minute=0)
+
+    # Evening Schedule: 07:00 PM (19:00), 09:00 PM (21:00)
+    scheduler.add_job(run_session, 'cron', hour=19, minute=0)
+    scheduler.add_job(run_session, 'cron', hour=21, minute=0)
+
+    print("Bot is running and scheduled...")
+    try:
+        scheduler.start()
+    except (KeyboardInterrupt, SystemExit):
+        pass
+    
