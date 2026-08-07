@@ -2,7 +2,7 @@ import os
 import time
 import threading
 import requests
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 # ==========================================
@@ -16,9 +16,12 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
 
 def run_web_server():
     port = int(os.environ.get("PORT", 10000))
-    server = HTTPServer(('0.0.0.0', port), SimpleHTTPRequestHandler)
-    print(f"Web server started on port {port}")
-    server.serve_forever()
+    try:
+        server = HTTPServer(('0.0.0.0', port), SimpleHTTPRequestHandler)
+        print(f"Web server started on port {port}")
+        server.serve_forever()
+    except Exception as e:
+        print(f"Web server error: {e}")
 
 threading.Thread(target=run_web_server, daemon=True).start()
 
@@ -30,15 +33,16 @@ TELEGRAM_CHAT_ID = "@damanwolf022"
 CHANNEL_LINK = "https://t.me/damanwolf022"
 API_URL = "https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json"
 
-# IST Timezone (+5:30)
-IST = timezone(timedelta(hours=5, minutes=30))
-
-# Scheduled Hours (IST 24-Hour Format): 07:00, 09:00, 11:00, 19:00, 21:00
+# Scheduled Hours in IST (24-Hour Format): 7 AM, 9 AM, 11 AM, 7 PM (19), 9 PM (21)
 SCHEDULED_HOURS = [7, 9, 11, 19, 21]
 
 # ==========================================
 # HELPER FUNCTIONS
 # ==========================================
+def get_ist_now():
+    """Gets current IST time by adding 5 hours 30 mins to UTC."""
+    return datetime.utcnow() + timedelta(hours=5, minutes=30)
+
 def send_telegram_message(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
@@ -198,18 +202,22 @@ if __name__ == "__main__":
     executed_hours = set()
 
     while True:
-        now_ist = datetime.now(IST)
-        current_hour = now_ist.hour
-        current_minute = now_ist.minute
+        try:
+            now_ist = get_ist_now()
+            current_hour = now_ist.hour
+            current_minute = now_ist.minute
 
-        if current_hour in SCHEDULED_HOURS and current_minute < 5:
-            if current_hour not in executed_hours:
-                executed_hours.add(current_hour)
-                run_session()
+            # Check scheduled time (First 5 minutes of target hour)
+            if current_hour in SCHEDULED_HOURS and current_minute < 5:
+                if current_hour not in executed_hours:
+                    executed_hours.add(current_hour)
+                    run_session()
 
-        if current_minute >= 10:
-            executed_hours.discard(current_hour)
+            # Clear memory after minute 10
+            if current_minute >= 10:
+                executed_hours.discard(current_hour)
+
+        except Exception as e:
+            print(f"Loop Error: {e}")
 
         time.sleep(15)
-
-    
