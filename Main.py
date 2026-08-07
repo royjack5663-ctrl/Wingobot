@@ -1,7 +1,7 @@
 import os
 import time
 import threading
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import requests
 
@@ -26,7 +26,10 @@ TELEGRAM_CHAT_ID = "@damanwolf022"
 CHANNEL_LINK = "https://t.me/damanwolf022"
 API_URL = "https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json"
 
-# Scheduled Times (24-Hour Format IST): 07:00, 09:00, 11:00, 19:00, 21:00
+# IST Timezone (+5:30)
+IST = timezone(timedelta(hours=5, minutes=30))
+
+# Scheduled Hours (24-Hour Format IST): 07:00, 09:00, 11:00, 19:00, 21:00
 SCHEDULED_HOURS = [7, 9, 11, 19, 21]
 
 # ================= HELPER FUNCTIONS =================
@@ -179,21 +182,29 @@ def run_session():
     )
 
 # Startup Message
-send_telegram_message("⚡ <b>DAMAN WOLF SCHEDULER ENGINE ONLINE</b>")
+send_telegram_message("⚡ <b>DAMAN WOLF SCHEDULER ENGINE RESTARTED</b>")
 
-# Loop to Trigger Session at Exact Hours IST
-last_executed_hour = -1
+# Continuous Clock Loop
+session_executed_today = False
 
 while True:
-    # Get IST Time (+5:30)
-    utc_now = datetime.utcnow()
-    ist_hour = (utc_now.hour + 5 + (utc_now.minute + 30) // 60) % 24
-    ist_minute = (utc_now.minute + 30) % 60
-
-    if ist_hour in SCHEDULED_HOURS and ist_minute == 0:
-        if last_executed_hour != ist_hour:
-            last_executed_hour = ist_hour
+    now_ist = datetime.now(IST)
+    
+    # 1. SPECIAL TEST TIME CHECK (09:10 AM IST)
+    if now_ist.hour == 9 and now_ist.minute == 10:
+        if not session_executed_today:
+            session_executed_today = True
             run_session()
 
-    time.sleep(10)
-        
+    # 2. REGULAR SCHEDULED TIMES CHECK (00 to 05 minutes of the hour)
+    elif now_ist.hour in SCHEDULED_HOURS and now_ist.minute < 5:
+        if not session_executed_today:
+            session_executed_today = True
+            run_session()
+            
+    # Reset flag when minute passes
+    elif now_ist.minute > 10:
+        session_executed_today = False
+
+    time.sleep(5)
+                      
