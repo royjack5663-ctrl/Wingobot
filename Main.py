@@ -11,7 +11,7 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b"DAMAN WOLF WINGO ENGINE ACTIVE")
+        self.wfile.write(b"DAMAN WOLF ENGINE ACTIVE")
 
 def run_web_server():
     port = int(os.environ.get("PORT", 10000))
@@ -55,12 +55,12 @@ def send_telegram_message(message):
         print(f"Telegram Send Error: {e}")
 
 def get_api_data():
+    """ Robust API Fetching & Extraction """
     try:
         res = requests.get(API_URL, headers=HEADERS, timeout=10)
         if res.status_code == 200:
             data = res.json()
             if isinstance(data, dict):
-                # Check for list inside 'data' or root
                 data_field = data.get("data")
                 if isinstance(data_field, dict):
                     return data_field.get("list", [])
@@ -73,15 +73,14 @@ def get_api_data():
 def get_short_period(full_period_str):
     """ Period number ke last 3 digits extract karta hai """
     period_str = str(full_period_str)
-    if len(period_str) >= 3:
-        return period_str[-3:]
-    return period_str
+    return period_str[-3:] if len(period_str) >= 3 else period_str
 
 # ==========================================
-# MAIN CONTINUOUS ENGINE
+# MAIN PREDICTION ENGINE
 # ==========================================
 if __name__ == "__main__":
-    send_telegram_message("⚡ <b>DAMAN WOLF ENGINE STARTED</b>")
+    # Updated Engine Startup Message
+    send_telegram_message("🚀 <b>DAMAN WOLF PREDICTION ENGINE ONLINE</b>\n<i>Syncing with 1-Minute Wingo Stream...</i>")
 
     prediction_count = 0
     last_processed_full_period = None
@@ -93,7 +92,7 @@ if __name__ == "__main__":
         try:
             history = get_api_data()
             if not history:
-                print("API history empty, waiting 10s...")
+                print("API data empty, retrying in 10s...")
                 time.sleep(10)
                 continue
 
@@ -102,7 +101,7 @@ if __name__ == "__main__":
             latest_num = int(latest_item.get("number", 0))
             actual_res = "BIG" if latest_num >= 5 else "SMALL"
 
-            # 1. Result Check (Jab naya minute/period aati hai)
+            # 1. Result Check for Previous Prediction
             if pending_full_period and latest_full_period == pending_full_period:
                 short_p = get_short_period(pending_full_period)
                 if actual_res == pending_prediction:
@@ -117,11 +116,11 @@ if __name__ == "__main__":
                     )
                 pending_full_period = None
 
-            # 2. Agle Minute ke liye Naya Prediction generate aur send karein
+            # 2. Generate Next Period Prediction
             if not pending_full_period and last_processed_full_period != latest_full_period:
                 next_full_period = str(int(latest_full_period) + 1)
                 
-                # Logic: Agar pichhla number BIG (>=5) tha to SMALL, nahi to BIG
+                # Dynamic Logic
                 predicted_val = "SMALL" if latest_num >= 5 else "BIG"
 
                 prediction_count += 1
@@ -139,7 +138,7 @@ if __name__ == "__main__":
                 )
 
         except Exception as e:
-            print(f"Runtime Error: {e}")
+            print(f"Runtime Engine Error: {e}")
 
-        # Wingo 1-Minute cycle checking delay
+        # Checking frequency every 10 seconds for 1-minute issue sync
         time.sleep(10)
