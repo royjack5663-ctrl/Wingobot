@@ -30,14 +30,14 @@ TELEGRAM_CHAT_ID = "@damanwolf022"
 CHANNEL_LINK = "https://t.me/damanwolf022"
 API_URL = "https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json"
 
-# IST Timezone setup (+5 hours 30 mins)
+# IST Timezone (+5:30)
 IST = timezone(timedelta(hours=5, minutes=30))
 
-# Scheduled Hours (IST 24-Hour Format): 7 AM, 9 AM, 11 AM, 7 PM (19), 9 PM (21)
+# Scheduled Hours (IST 24-Hour Format): 07:00, 09:00, 11:00, 19:00, 21:00
 SCHEDULED_HOURS = [7, 9, 11, 19, 21]
 
 # ==========================================
-# TELEGRAM NOTIFICATION HELPER
+# HELPER FUNCTIONS
 # ==========================================
 def send_telegram_message(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -48,22 +48,17 @@ def send_telegram_message(message):
         "disable_web_page_preview": True
     }
     try:
-        response = requests.post(url, json=payload, timeout=10)
-        if not response.ok:
-            print(f"Telegram API Error: {response.text}")
+        requests.post(url, json=payload, timeout=10)
     except Exception as e:
-        print(f"Error sending Telegram message: {e}")
+        print(f"Telegram Error: {e}")
 
-# ==========================================
-# PREDICTION ENGINE
-# ==========================================
 def get_api_data():
     try:
-        response = requests.get(API_URL, timeout=10)
-        if response.status_code == 200:
-            return response.json().get("data", {}).get("list", [])
+        res = requests.get(API_URL, timeout=10)
+        if res.status_code == 200:
+            return res.json().get("data", {}).get("list", [])
     except Exception as e:
-        print(f"API Fetch Error: {e}")
+        print(f"API Error: {e}")
     return []
 
 def calculate_next_prediction(history_list, consecutive_misses):
@@ -105,7 +100,7 @@ def calculate_next_prediction(history_list, consecutive_misses):
     return str(int(issue_number) + 1), final_prediction
 
 # ==========================================
-# SESSION LOGIC
+# SESSION ENGINE
 # ==========================================
 def run_session():
     send_telegram_message(
@@ -147,8 +142,7 @@ def run_session():
                 total_wins += 1
                 current_win_streak += 1
                 current_loss_streak = 0
-                if current_win_streak > max_win_streak: 
-                    max_win_streak = current_win_streak
+                if current_win_streak > max_win_streak: max_win_streak = current_win_streak
                 
                 send_telegram_message(
                     f"✅ <b>WIN!</b> Period {pending_period} was {actual_result}\n"
@@ -159,8 +153,7 @@ def run_session():
                 total_losses += 1
                 current_loss_streak += 1
                 current_win_streak = 0
-                if current_loss_streak > max_loss_streak: 
-                    max_loss_streak = current_loss_streak
+                if current_loss_streak > max_loss_streak: max_loss_streak = current_loss_streak
                 
                 send_telegram_message(
                     f"❌ <b>LOSS!</b> Period {pending_period} was {actual_result}\n"
@@ -188,23 +181,19 @@ def run_session():
 
         time.sleep(50) 
 
-    report = (
+    send_telegram_message(
         f"🏆 <b>SESSION COMPLETE REPORT</b> 🏆\n\n"
         f"🔹 <b>Total Predictions:</b> {predictions_made}\n"
         f"✅ <b>Total Wins:</b> {total_wins}\n"
         f"❌ <b>Total Losses:</b> {total_losses}\n\n"
-        f"🔥 <b>Max Continuous Win:</b> {max_win_streak}\n"
-        f"📉 <b>Max Continuous Loss:</b> {max_loss_streak}\n\n"
         f"👑 <b>Join Us:</b> <a href='{CHANNEL_LINK}'>Daman Wolf Official Channel</a>"
     )
-    send_telegram_message(report)
 
 # ==========================================
-# CUSTOM SCHEDULER LOOP
+# MAIN LOOP
 # ==========================================
 if __name__ == "__main__":
     send_telegram_message("⚡ <b>DAMAN WOLF SCHEDULER ENGINE ONLINE</b>")
-    print("Scheduler engine online...")
 
     executed_hours = set()
 
@@ -213,15 +202,14 @@ if __name__ == "__main__":
         current_hour = now_ist.hour
         current_minute = now_ist.minute
 
-        # Check if current time is top of the hour for scheduled times
         if current_hour in SCHEDULED_HOURS and current_minute < 5:
             if current_hour not in executed_hours:
                 executed_hours.add(current_hour)
                 run_session()
 
-        # Reset execution memory as the hour passes
         if current_minute >= 10:
             executed_hours.discard(current_hour)
 
         time.sleep(15)
+
     
