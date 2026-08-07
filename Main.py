@@ -11,7 +11,7 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b"DAMAN WOLF 24/7 TEST ENGINE ACTIVE")
+        self.wfile.write(b"DAMAN WOLF WINGO ENGINE ACTIVE")
 
 def run_web_server():
     port = int(os.environ.get("PORT", 10000))
@@ -50,7 +50,7 @@ def send_telegram_message(message):
     }
     try:
         res = requests.post(url, json=payload, timeout=10)
-        print(f"Telegram Response Code: {res.status_code}")
+        print(f"Telegram Sent Status: {res.status_code}")
     except Exception as e:
         print(f"Telegram Send Error: {e}")
 
@@ -59,68 +59,87 @@ def get_api_data():
         res = requests.get(API_URL, headers=HEADERS, timeout=10)
         if res.status_code == 200:
             data = res.json()
-            if isinstance(data, dict) and "data" in data:
-                lst = data.get("data", {}).get("list", [])
-                if lst:
-                    return lst
+            if isinstance(data, dict):
+                # Check for list inside 'data' or root
+                data_field = data.get("data")
+                if isinstance(data_field, dict):
+                    return data_field.get("list", [])
+                elif isinstance(data_field, list):
+                    return data_field
     except Exception as e:
         print(f"API Fetch Error: {e}")
-    
-    # Fallback simulation if API blocks requests (Guarantees execution)
-    current_time_period = str(int(time.time()))
-    return [{"issueNumber": current_time_period, "number": "7"}]
+    return []
+
+def get_short_period(full_period_str):
+    """ Period number ke last 3 digits extract karta hai """
+    period_str = str(full_period_str)
+    if len(period_str) >= 3:
+        return period_str[-3:]
+    return period_str
 
 # ==========================================
-# MAIN 24/7 TESTING ENGINE
+# MAIN CONTINUOUS ENGINE
 # ==========================================
 if __name__ == "__main__":
-    send_telegram_message("⚡ <b>DAMAN WOLF CONTINUOUS TEST MODE ONLINE</b>")
+    send_telegram_message("⚡ <b>DAMAN WOLF ENGINE STARTED</b>")
 
     prediction_count = 0
-    last_processed_period = None
+    last_processed_full_period = None
+    
+    pending_full_period = None
     pending_prediction = None
-    pending_target_period = None
 
     while True:
         try:
             history = get_api_data()
+            if not history:
+                print("API history empty, waiting 10s...")
+                time.sleep(10)
+                continue
+
             latest_item = history[0]
-            latest_period = str(latest_item.get("issueNumber"))
+            latest_full_period = str(latest_item.get("issueNumber"))
             latest_num = int(latest_item.get("number", 0))
             actual_res = "BIG" if latest_num >= 5 else "SMALL"
 
-            # 1. Result Evaluation
-            if pending_target_period and latest_period == pending_target_period:
+            # 1. Result Check (Jab naya minute/period aati hai)
+            if pending_full_period and latest_full_period == pending_full_period:
+                short_p = get_short_period(pending_full_period)
                 if actual_res == pending_prediction:
                     send_telegram_message(
-                        f"✅ <b>WIN!</b> Period {pending_target_period} was {actual_res}\n"
+                        f"✅ <b>WIN!</b> Period {short_p} was <b>{actual_res}</b>\n"
                         f"🔗 <a href='{CHANNEL_LINK}'>Join Daman Wolf Channel</a>"
                     )
                 else:
                     send_telegram_message(
-                        f"❌ <b>LOSS!</b> Period {pending_target_period} was {actual_res}\n"
+                        f"❌ <b>LOSS!</b> Period {short_p} was <b>{actual_res}</b>\n"
                         f"🔗 <a href='{CHANNEL_LINK}'>Join Daman Wolf Channel</a>"
                     )
-                pending_target_period = None
+                pending_full_period = None
 
-            # 2. Trigger Next Prediction
-            if not pending_target_period and last_processed_period != latest_period:
-                next_period = str(int(latest_period) + 1)
-                predicted_val = "BIG" if latest_num < 5 else "SMALL"
+            # 2. Agle Minute ke liye Naya Prediction generate aur send karein
+            if not pending_full_period and last_processed_full_period != latest_full_period:
+                next_full_period = str(int(latest_full_period) + 1)
+                
+                # Logic: Agar pichhla number BIG (>=5) tha to SMALL, nahi to BIG
+                predicted_val = "SMALL" if latest_num >= 5 else "BIG"
 
                 prediction_count += 1
-                pending_target_period = next_period
+                pending_full_period = next_full_period
                 pending_prediction = predicted_val
-                last_processed_period = latest_period
+                last_processed_full_period = latest_full_period
+
+                short_next_period = get_short_period(next_full_period)
 
                 send_telegram_message(
                     f"📊 <b>PREDICTION #{prediction_count}</b>\n"
-                    f"🔹 <b>Period:</b> {next_period}\n"
+                    f"🔹 <b>Period:</b> {short_next_period}\n"
                     f"🎯 <b>Result:</b> {predicted_val}\n\n"
                     f"📢 <b>Official Channel:</b> <a href='{CHANNEL_LINK}'>@damanwolf022</a>"
                 )
 
         except Exception as e:
-            print(f"Runtime Loop Error: {e}")
+            print(f"Runtime Error: {e}")
 
-        time.sleep(15)
+        # Wingo 1-Minute cycle checking delay
+        time.sleep(10)
