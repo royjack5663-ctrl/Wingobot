@@ -2,9 +2,7 @@ import os
 import time
 import threading
 import requests
-from datetime import datetime
-from pytz import timezone
-from apscheduler.schedulers.blocking import BlockingScheduler
+from datetime import datetime, timezone, timedelta
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 # ==========================================
@@ -30,15 +28,18 @@ threading.Thread(target=run_web_server, daemon=True).start()
 TELEGRAM_BOT_TOKEN = "8474361108:AAHkJ4K73zE_vxqJDiDcjfs-58GSZs0Vb08"
 TELEGRAM_CHAT_ID = "@damanwolf022" 
 CHANNEL_LINK = "https://t.me/damanwolf022"
-
 API_URL = "https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json"
-IST = timezone('Asia/Kolkata')
+
+# IST Timezone setup (+5 hours 30 mins)
+IST = timezone(timedelta(hours=5, minutes=30))
+
+# Scheduled Hours (IST 24-Hour Format): 7 AM, 9 AM, 11 AM, 7 PM (19), 9 PM (21)
+SCHEDULED_HOURS = [7, 9, 11, 19, 21]
 
 # ==========================================
 # TELEGRAM NOTIFICATION HELPER
 # ==========================================
 def send_telegram_message(message):
-    """Sends a formatted message to your Telegram channel using HTML mode."""
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
@@ -57,7 +58,6 @@ def send_telegram_message(message):
 # PREDICTION ENGINE
 # ==========================================
 def get_api_data():
-    """Fetches the latest game history from the server."""
     try:
         response = requests.get(API_URL, timeout=10)
         if response.status_code == 200:
@@ -67,7 +67,6 @@ def get_api_data():
     return []
 
 def calculate_next_prediction(history_list, consecutive_misses):
-    """Calculates the BIG or SMALL prediction based on game history."""
     if not history_list:
         return None, None
 
@@ -103,20 +102,16 @@ def calculate_next_prediction(history_list, consecutive_misses):
         else: small_count += 0.5
         final_prediction = "BIG" if big_count > small_count else "SMALL"
 
-    next_period_id = str(int(issue_number) + 1)
-    return next_period_id, final_prediction
+    return str(int(issue_number) + 1), final_prediction
 
 # ==========================================
 # SESSION LOGIC
 # ==========================================
 def run_session():
-    """Runs a complete prediction session (10+ predictions until final win)."""
-    start_msg = (
+    send_telegram_message(
         f"🟢 <b>NEW PREDICTION SESSION STARTED</b> 🟢\n"
         f"📢 <b>Channel:</b> <a href='{CHANNEL_LINK}'>Daman Wolf Official</a>"
     )
-    send_telegram_message(start_msg)
-    print(f"[{datetime.now(IST)}] Session started.")
 
     predictions_made = 0
     total_wins = 0
@@ -193,19 +188,6 @@ def run_session():
 
         time.sleep(50) 
 
-    # REPORT
-    try:
-        jobs = scheduler.get_jobs()
-        jobs.sort(key=lambda j: j.next_run_time)
-        
-        next_time_str = "Unknown"
-        for job in jobs:
-            if job.next_run_time > datetime.now(IST):
-                next_time_str = job.next_run_time.strftime("%I:%M %p")
-                break
-    except Exception:
-        next_time_str = "Next Scheduled Time"
-
     report = (
         f"🏆 <b>SESSION COMPLETE REPORT</b> 🏆\n\n"
         f"🔹 <b>Total Predictions:</b> {predictions_made}\n"
@@ -213,34 +195,33 @@ def run_session():
         f"❌ <b>Total Losses:</b> {total_losses}\n\n"
         f"🔥 <b>Max Continuous Win:</b> {max_win_streak}\n"
         f"📉 <b>Max Continuous Loss:</b> {max_loss_streak}\n\n"
-        f"⏰ <b>Next Session Schedule:</b> {next_time_str}\n\n"
         f"👑 <b>Join Us:</b> <a href='{CHANNEL_LINK}'>Daman Wolf Official Channel</a>"
     )
     send_telegram_message(report)
-    print(f"[{datetime.now(IST)}] Session ended. Report sent.")
 
 # ==========================================
-# SCHEDULER SETUP
+# CUSTOM SCHEDULER LOOP
 # ==========================================
 if __name__ == "__main__":
-    global scheduler
-    scheduler = BlockingScheduler(timezone=IST)
-
-    # Clean startup notification
     send_telegram_message("⚡ <b>DAMAN WOLF SCHEDULER ENGINE ONLINE</b>")
+    print("Scheduler engine online...")
 
-    # Morning Schedule: 07:00 AM, 09:00 AM, 11:00 AM
-    scheduler.add_job(run_session, 'cron', hour=7, minute=0)
-    scheduler.add_job(run_session, 'cron', hour=9, minute=0)
-    scheduler.add_job(run_session, 'cron', hour=11, minute=0)
+    executed_hours = set()
 
-    # Evening Schedule: 07:00 PM (19:00), 09:00 PM (21:00)
-    scheduler.add_job(run_session, 'cron', hour=19, minute=0)
-    scheduler.add_job(run_session, 'cron', hour=21, minute=0)
+    while True:
+        now_ist = datetime.now(IST)
+        current_hour = now_ist.hour
+        current_minute = now_ist.minute
 
-    print("Bot is running and scheduled...")
-    try:
-        scheduler.start()
-    except (KeyboardInterrupt, SystemExit):
-        pass
+        # Check if current time is top of the hour for scheduled times
+        if current_hour in SCHEDULED_HOURS and current_minute < 5:
+            if current_hour not in executed_hours:
+                executed_hours.add(current_hour)
+                run_session()
+
+        # Reset execution memory as the hour passes
+        if current_minute >= 10:
+            executed_hours.discard(current_hour)
+
+        time.sleep(15)
     
