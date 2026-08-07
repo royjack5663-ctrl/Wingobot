@@ -1,19 +1,34 @@
+import os
 import time
+import threading
 import requests
 from datetime import datetime
 from pytz import timezone
 from apscheduler.schedulers.blocking import BlockingScheduler
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
 # ==========================================
-# CONFIGURATION
+# 1. FAKE WEB SERVER FOR RENDER (PORT FIX)
 # ==========================================
-# 1. Replace with your HTTP API Token from @BotFather
-TELEGRAM_BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN_HERE"
+class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"DAMAN WOLF SCHEDULER ACTIVE")
 
-# 2. Your Telegram Channel username (Must include '@')
+def run_web_server():
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(('0.0.0.0', port), SimpleHTTPRequestHandler)
+    print(f"Web server started on port {port}")
+    server.serve_forever()
+
+threading.Thread(target=run_web_server, daemon=True).start()
+
+# ==========================================
+# 2. CONFIGURATION
+# ==========================================
+TELEGRAM_BOT_TOKEN = "8474361108:AAHkJ4K73zE_vxqJDiDcjfs-58GSZs0Vb08"
 TELEGRAM_CHAT_ID = "@damanwolf022" 
-
-# 3. Channel URL for branding in messages
 CHANNEL_LINK = "https://t.me/damanwolf022"
 
 API_URL = "https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json"
@@ -29,7 +44,7 @@ def send_telegram_message(message):
         "chat_id": TELEGRAM_CHAT_ID,
         "text": message,
         "parse_mode": "HTML",
-        "disable_web_page_preview": True  # Keeps messages clean without big link previews
+        "disable_web_page_preview": True
     }
     try:
         response = requests.post(url, json=payload, timeout=10)
@@ -59,14 +74,12 @@ def calculate_next_prediction(history_list, consecutive_misses):
     current_issue = history_list[0]
     issue_number = current_issue.get("issueNumber")
 
-    # Dynamic observation length based on consecutive losses
     observation_length = 5
     if consecutive_misses == 1:
         observation_length = 4
     elif consecutive_misses >= 2:
         observation_length = 3
 
-    # Map numbers to BIG or SMALL
     observed_history = []
     for x in history_list[:observation_length]:
         num = int(x.get("number", 0))
@@ -123,7 +136,6 @@ def run_session():
             time.sleep(10)
             continue
 
-        # 1. Verify previous prediction result
         if pending_period:
             actual_result = None
             for item in history_list:
@@ -136,7 +148,6 @@ def run_session():
                 time.sleep(10)
                 continue
             
-            # WIN / LOSS Check
             if actual_result == pending_prediction:
                 total_wins += 1
                 current_win_streak += 1
@@ -162,13 +173,11 @@ def run_session():
                 )
                 is_last_win = False
 
-            # Stop condition: 10 or more predictions made AND the last result was a WIN
             if predictions_made >= 10 and is_last_win:
                 break
                 
             pending_period = None 
 
-        # 2. Make new prediction
         next_period, prediction = calculate_next_prediction(history_list, current_loss_streak)
         
         pending_period = next_period
@@ -182,12 +191,9 @@ def run_session():
             f"📢 <b>Official Channel:</b> <a href='{CHANNEL_LINK}'>@damanwolf022</a>"
         )
 
-        # Wait 50 seconds before checking next result (for 1-minute game)
         time.sleep(50) 
 
-    # ==========================================
-    # SESSION COMPLETE REPORT
-    # ==========================================
+    # REPORT
     jobs = scheduler.get_jobs()
     jobs.sort(key=lambda j: j.next_run_time)
     
@@ -217,6 +223,9 @@ if __name__ == "__main__":
     global scheduler
     scheduler = BlockingScheduler(timezone=IST)
 
+    # Startup message
+    send_telegram_message("⚡ <b>DAMAN WOLF SCHEDULER ENGINE ONLINE</b>")
+
     # Morning Schedule: 07:00 AM, 09:00 AM, 11:00 AM
     scheduler.add_job(run_session, 'cron', hour=7, minute=0)
     scheduler.add_job(run_session, 'cron', hour=9, minute=0)
@@ -231,4 +240,3 @@ if __name__ == "__main__":
         scheduler.start()
     except (KeyboardInterrupt, SystemExit):
         pass
-    
