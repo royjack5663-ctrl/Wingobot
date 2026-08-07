@@ -2,7 +2,6 @@ import os
 import time
 import threading
 import requests
-from datetime import datetime, timedelta
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 # ==========================================
@@ -45,7 +44,8 @@ def send_telegram_message(message):
         "disable_web_page_preview": True
     }
     try:
-        requests.post(url, json=payload, timeout=10)
+        res = requests.post(url, json=payload, timeout=10)
+        print(f"Telegram Sent Status: {res.status_code}")
     except Exception as e:
         print(f"Telegram Error: {e}")
 
@@ -58,52 +58,13 @@ def get_api_data():
         print(f"API Error: {e}")
     return []
 
-def calculate_next_prediction(history_list, consecutive_misses):
-    if not history_list:
-        return None, None
-
-    current_issue = history_list[0]
-    issue_number = current_issue.get("issueNumber")
-
-    observation_length = 5
-    if consecutive_misses == 1:
-        observation_length = 4
-    elif consecutive_misses >= 2:
-        observation_length = 3
-
-    observed_history = []
-    for x in history_list[:observation_length]:
-        num = int(x.get("number", 0))
-        observed_history.append("BIG" if num >= 5 else "SMALL")
-
-    if len(observed_history) < 3:
-        return str(int(issue_number) + 1), "BIG"
-
-    r1, r2, r3 = observed_history[0], observed_history[1], observed_history[2]
-    is_chopping = (r1 != r2) and (r2 != r3)
-    is_streak = (r1 == r2) and (r2 == r3)
-
-    if is_chopping:
-        final_prediction = "SMALL" if r1 == "BIG" else "BIG"
-    elif is_streak:
-        final_prediction = r1
-    else:
-        big_count = observed_history.count("BIG")
-        small_count = observed_history.count("SMALL")
-        if r1 == "BIG": big_count += 0.5
-        else: small_count += 0.5
-        final_prediction = "BIG" if big_count > small_count else "SMALL"
-
-    return str(int(issue_number) + 1), final_prediction
-
 # ==========================================
 # 24/7 CONTINUOUS ENGINE
 # ==========================================
 if __name__ == "__main__":
-    send_telegram_message("⚡ <b>DAMAN WOLF 24/7 CONTINUOUS ENGINE STARTED</b>")
+    send_telegram_message("⚡ <b>DAMAN WOLF 24/7 TEST ENGINE ONLINE</b>")
 
     prediction_count = 0
-    consecutive_misses = 0
     pending_period = None
     pending_prediction = None
 
@@ -112,41 +73,40 @@ if __name__ == "__main__":
             history_list = get_api_data()
             
             if not history_list:
+                print("No history data found, retrying...")
                 time.sleep(10)
                 continue
 
-            # 1. Verification of previous prediction result
+            current_issue = history_list[0]
+            latest_period = current_issue.get("issueNumber")
+
+            # 1. Result Check for Pending Period
             if pending_period:
-                actual_result = None
-                for item in history_list:
-                    if item.get("issueNumber") == pending_period:
-                        num = int(item.get("number", 0))
-                        actual_result = "BIG" if num >= 5 else "SMALL"
-                        break
+                if latest_period == pending_period:
+                    num = int(current_issue.get("number", 0))
+                    actual_result = "BIG" if num >= 5 else "SMALL"
+
+                    if actual_result == pending_prediction:
+                        send_telegram_message(
+                            f"✅ <b>WIN!</b> Period {pending_period} was {actual_result}\n"
+                            f"🔗 <a href='{CHANNEL_LINK}'>Join Daman Wolf Channel</a>"
+                        )
+                    else:
+                        send_telegram_message(
+                            f"❌ <b>LOSS!</b> Period {pending_period} was {actual_result}\n"
+                            f"🔗 <a href='{CHANNEL_LINK}'>Join Daman Wolf Channel</a>"
+                        )
+                    
+                    pending_period = None
+
+            # 2. Generate Prediction if not already pending
+            if not pending_period:
+                next_period = str(int(latest_period) + 1)
                 
-                if actual_result is None:
-                    time.sleep(10)
-                    continue
+                # Simple Alternate/Trend Predictor for test mode
+                num = int(current_issue.get("number", 0))
+                prediction = "SMALL" if num >= 5 else "BIG"
 
-                if actual_result == pending_prediction:
-                    consecutive_misses = 0
-                    send_telegram_message(
-                        f"✅ <b>WIN!</b> Period {pending_period} was {actual_result}\n"
-                        f"🔗 <a href='{CHANNEL_LINK}'>Join Daman Wolf Channel</a>"
-                    )
-                else:
-                    consecutive_misses += 1
-                    send_telegram_message(
-                        f"❌ <b>LOSS!</b> Period {pending_period} was {actual_result}\n"
-                        f"🔗 <a href='{CHANNEL_LINK}'>Join Daman Wolf Channel</a>"
-                    )
-
-                pending_period = None
-
-            # 2. Generate Next Period Prediction
-            next_period, prediction = calculate_next_prediction(history_list, consecutive_misses)
-            
-            if next_period:
                 pending_period = next_period
                 pending_prediction = prediction
                 prediction_count += 1
@@ -158,10 +118,8 @@ if __name__ == "__main__":
                     f"📢 <b>Official Channel:</b> <a href='{CHANNEL_LINK}'>@damanwolf022</a>"
                 )
 
-            # Wait 50 seconds before next issue result
-            time.sleep(50)
+            time.sleep(15)
 
         except Exception as e:
-            print(f"Loop Error: {e}")
+            print(f"Main Loop Error: {e}")
             time.sleep(10)
-            
