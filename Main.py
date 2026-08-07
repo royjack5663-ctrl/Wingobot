@@ -1,11 +1,15 @@
 import os
 import time
 import threading
-from datetime import datetime, timezone, timedelta
-from http.server import HTTPServer, BaseHTTPRequestHandler
 import requests
+from datetime import datetime
+from pytz import timezone
+from apscheduler.schedulers.blocking import BlockingScheduler
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
-# ================= 1. FAKE WEB SERVER =================
+# ==========================================
+# 1. FAKE WEB SERVER FOR RENDER (PORT FIX)
+# ==========================================
 class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -15,25 +19,26 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
 def run_web_server():
     port = int(os.environ.get("PORT", 10000))
     server = HTTPServer(('0.0.0.0', port), SimpleHTTPRequestHandler)
-    print(f"Web server running on port {port}")
+    print(f"Web server started on port {port}")
     server.serve_forever()
 
 threading.Thread(target=run_web_server, daemon=True).start()
 
-# ================= 2. CONFIGURATION =================
+# ==========================================
+# 2. CONFIGURATION
+# ==========================================
 TELEGRAM_BOT_TOKEN = "8474361108:AAHkJ4K73zE_vxqJDiDcjfs-58GSZs0Vb08"
-TELEGRAM_CHAT_ID = "@damanwolf022"
+TELEGRAM_CHAT_ID = "@damanwolf022" 
 CHANNEL_LINK = "https://t.me/damanwolf022"
+
 API_URL = "https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json"
+IST = timezone('Asia/Kolkata')
 
-# IST Timezone (+5:30)
-IST = timezone(timedelta(hours=5, minutes=30))
-
-# Scheduled Hours (24-Hour Format IST): 07:00, 09:00, 11:00, 19:00, 21:00
-SCHEDULED_HOURS = [7, 9, 11, 19, 21]
-
-# ================= HELPER FUNCTIONS =================
+# ==========================================
+# TELEGRAM NOTIFICATION HELPER
+# ==========================================
 def send_telegram_message(message):
+    """Sends a formatted message to your Telegram channel using HTML mode."""
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
@@ -42,20 +47,27 @@ def send_telegram_message(message):
         "disable_web_page_preview": True
     }
     try:
-        requests.post(url, json=payload, timeout=10)
+        response = requests.post(url, json=payload, timeout=10)
+        if not response.ok:
+            print(f"Telegram API Error: {response.text}")
     except Exception as e:
-        print(f"Telegram Error: {e}")
+        print(f"Error sending Telegram message: {e}")
 
+# ==========================================
+# PREDICTION ENGINE
+# ==========================================
 def get_api_data():
+    """Fetches the latest game history from the server."""
     try:
-        res = requests.get(API_URL, timeout=10)
-        if res.status_code == 200:
-            return res.json().get("data", {}).get("list", [])
+        response = requests.get(API_URL, timeout=10)
+        if response.status_code == 200:
+            return response.json().get("data", {}).get("list", [])
     except Exception as e:
         print(f"API Fetch Error: {e}")
     return []
 
 def calculate_next_prediction(history_list, consecutive_misses):
+    """Calculates the BIG or SMALL prediction based on game history."""
     if not history_list:
         return None, None
 
@@ -91,14 +103,20 @@ def calculate_next_prediction(history_list, consecutive_misses):
         else: small_count += 0.5
         final_prediction = "BIG" if big_count > small_count else "SMALL"
 
-    return str(int(issue_number) + 1), final_prediction
+    next_period_id = str(int(issue_number) + 1)
+    return next_period_id, final_prediction
 
-# ================= SESSION ENGINE =================
+# ==========================================
+# SESSION LOGIC
+# ==========================================
 def run_session():
-    send_telegram_message(
+    """Runs a complete prediction session (10+ predictions until final win)."""
+    start_msg = (
         f"🟢 <b>NEW PREDICTION SESSION STARTED</b> 🟢\n"
         f"📢 <b>Channel:</b> <a href='{CHANNEL_LINK}'>Daman Wolf Official</a>"
     )
+    send_telegram_message(start_msg)
+    print(f"[{datetime.now(IST)}] Session started.")
 
     predictions_made = 0
     total_wins = 0
@@ -134,7 +152,8 @@ def run_session():
                 total_wins += 1
                 current_win_streak += 1
                 current_loss_streak = 0
-                if current_win_streak > max_win_streak: max_win_streak = current_win_streak
+                if current_win_streak > max_win_streak: 
+                    max_win_streak = current_win_streak
                 
                 send_telegram_message(
                     f"✅ <b>WIN!</b> Period {pending_period} was {actual_result}\n"
@@ -145,7 +164,8 @@ def run_session():
                 total_losses += 1
                 current_loss_streak += 1
                 current_win_streak = 0
-                if current_loss_streak > max_loss_streak: max_loss_streak = current_loss_streak
+                if current_loss_streak > max_loss_streak: 
+                    max_loss_streak = current_loss_streak
                 
                 send_telegram_message(
                     f"❌ <b>LOSS!</b> Period {pending_period} was {actual_result}\n"
@@ -173,38 +193,54 @@ def run_session():
 
         time.sleep(50) 
 
-    send_telegram_message(
+    # REPORT
+    try:
+        jobs = scheduler.get_jobs()
+        jobs.sort(key=lambda j: j.next_run_time)
+        
+        next_time_str = "Unknown"
+        for job in jobs:
+            if job.next_run_time > datetime.now(IST):
+                next_time_str = job.next_run_time.strftime("%I:%M %p")
+                break
+    except Exception:
+        next_time_str = "Next Scheduled Time"
+
+    report = (
         f"🏆 <b>SESSION COMPLETE REPORT</b> 🏆\n\n"
         f"🔹 <b>Total Predictions:</b> {predictions_made}\n"
         f"✅ <b>Total Wins:</b> {total_wins}\n"
         f"❌ <b>Total Losses:</b> {total_losses}\n\n"
+        f"🔥 <b>Max Continuous Win:</b> {max_win_streak}\n"
+        f"📉 <b>Max Continuous Loss:</b> {max_loss_streak}\n\n"
+        f"⏰ <b>Next Session Schedule:</b> {next_time_str}\n\n"
         f"👑 <b>Join Us:</b> <a href='{CHANNEL_LINK}'>Daman Wolf Official Channel</a>"
     )
+    send_telegram_message(report)
+    print(f"[{datetime.now(IST)}] Session ended. Report sent.")
 
-# Startup Message
-send_telegram_message("⚡ <b>DAMAN WOLF SCHEDULER ENGINE RESTARTED</b>")
+# ==========================================
+# SCHEDULER SETUP
+# ==========================================
+if __name__ == "__main__":
+    global scheduler
+    scheduler = BlockingScheduler(timezone=IST)
 
-# Continuous Clock Loop
-session_executed_today = False
+    # Clean startup notification
+    send_telegram_message("⚡ <b>DAMAN WOLF SCHEDULER ENGINE ONLINE</b>")
 
-while True:
-    now_ist = datetime.now(IST)
+    # Morning Schedule: 07:00 AM, 09:00 AM, 11:00 AM
+    scheduler.add_job(run_session, 'cron', hour=7, minute=0)
+    scheduler.add_job(run_session, 'cron', hour=9, minute=0)
+    scheduler.add_job(run_session, 'cron', hour=11, minute=0)
+
+    # Evening Schedule: 07:00 PM (19:00), 09:00 PM (21:00)
+    scheduler.add_job(run_session, 'cron', hour=19, minute=0)
+    scheduler.add_job(run_session, 'cron', hour=21, minute=0)
+
+    print("Bot is running and scheduled...")
+    try:
+        scheduler.start()
+    except (KeyboardInterrupt, SystemExit):
+        pass
     
-    # 1. SPECIAL TEST TIME CHECK (09:10 AM IST)
-    if now_ist.hour == 9 and now_ist.minute == 10:
-        if not session_executed_today:
-            session_executed_today = True
-            run_session()
-
-    # 2. REGULAR SCHEDULED TIMES CHECK (00 to 05 minutes of the hour)
-    elif now_ist.hour in SCHEDULED_HOURS and now_ist.minute < 5:
-        if not session_executed_today:
-            session_executed_today = True
-            run_session()
-            
-    # Reset flag when minute passes
-    elif now_ist.minute > 10:
-        session_executed_today = False
-
-    time.sleep(5)
-                      
