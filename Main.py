@@ -2,9 +2,29 @@ import os
 import time
 import datetime
 import requests
+from flask import Flask
+from threading import Thread
 
 # ==========================================
-# CONFIGURATION
+# 1. FLASK WEB SERVER (Render ko chup rakhne ke liye)
+# ==========================================
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Jack Roy VIP Bot is Running 24/7!"
+
+def run_web():
+    # Render automatically ek PORT assign karta hai
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host='0.0.0.0', port=port)
+
+def keep_alive():
+    t = Thread(target=run_web)
+    t.start()
+
+# ==========================================
+# 2. BOT CONFIGURATION
 # ==========================================
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8474361108:AAHkJ4K73zE_vxqJDiDcjfs-58GSZs0Vb08")
 TELEGRAM_CHAT_ID = "@damanwolf022" 
@@ -19,13 +39,13 @@ HEADERS = {
     "Accept": "application/json"
 }
 
+# Variables
 is_session_active = False
 current_session_hour = None
 prediction_count = 0
 wins = 0
 losses = 0
 waiting_for_recovery = False
-
 pending_full_period = None
 pending_prediction = None
 last_processed_period = None
@@ -89,10 +109,18 @@ def calculate_jack_roy_prediction(history_list, misses):
         if r1 == "SMALL": small_cnt += 0.5
         return "BIG" if big_cnt > small_cnt else "SMALL"
 
-if __name__ == "__main__":
+# ==========================================
+# 3. MAIN BOT LOOP
+# ==========================================
+def run_bot():
+    global is_session_active, current_session_hour, prediction_count
+    global wins, losses, waiting_for_recovery, consecutive_misses
+    global pending_full_period, pending_prediction, last_processed_period
+
     send_telegram("🚀 <b>JACK ROY VIP TIMED ENGINE ONLINE</b>")
-    print("Engine Running...")
+    print("Bot Engine Running...")
     processed_hours_today = []
+    last_day = None
 
     while True:
         try:
@@ -101,7 +129,7 @@ if __name__ == "__main__":
             curr_min = ist.minute
             today_str = ist.strftime("%Y-%m-%d")
 
-            if 'last_day' not in locals() or last_day != today_str:
+            if last_day != today_str:
                 processed_hours_today = []
                 last_day = today_str
 
@@ -184,3 +212,9 @@ if __name__ == "__main__":
             print(f"Error: {e}")
 
         time.sleep(10)
+
+if __name__ == "__main__":
+    # Pehle web server start karega
+    keep_alive()
+    # Phir bot ko start karega
+    run_bot()
