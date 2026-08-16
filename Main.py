@@ -2,6 +2,7 @@ import os
 import time
 import datetime
 import requests
+import cloudscraper
 from flask import Flask
 from threading import Thread
 
@@ -33,8 +34,9 @@ API_URL = "https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json
 SCHEDULED_HOURS = [7, 9, 11, 16, 20]
 MAX_STANDARD_PREDICTIONS = 10
 
+# Naye Headers jo website ko trick karenge ki ye ek Android Phone hai
 HEADERS = {
-    "User-Agent": "Mozilla/5.0",
+    "User-Agent": "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36",
     "Accept": "application/json"
 }
 
@@ -48,7 +50,7 @@ pending_prediction = None
 last_processed_period = None
 consecutive_misses = 0
 
-# ⭐ TEST MODE ON ⭐ - Ye lagate hi bot time ka wait nahi karega, turant session chalu karega!
+# ⭐ TEST MODE ON ⭐ - Ye turant result dega deploy hone par
 TEST_MODE = True
 
 def get_ist_time():
@@ -63,9 +65,15 @@ def send_telegram(msg):
     except Exception as e:
         print(f"Telegram error: {e}")
 
+# ==========================================
+# BYPASS SECURITY BLOCK (Naya Function)
+# ==========================================
 def get_api_data():
     try:
-        res = requests.get(API_URL, headers=HEADERS, timeout=10)
+        # cloudscraper asli mobile browser ki tarah behave karega API block rokne ke liye
+        scraper = cloudscraper.create_scraper(browser={'browser': 'chrome', 'platform': 'android', 'mobile': True})
+        res = scraper.get(API_URL, headers=HEADERS, timeout=15)
+        
         if res.status_code == 200:
             data = res.json()
             if isinstance(data, dict):
@@ -74,8 +82,8 @@ def get_api_data():
                     return d.get("list", [])
                 elif isinstance(d, list):
                     return d
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"API Block Error: {e}")
     return []
 
 def calculate_jack_roy_prediction(history_list, misses):
@@ -125,7 +133,6 @@ def run_bot():
                 processed_hours_today = []
                 last_day = today_str
 
-            # MAIN FIX: Agar TEST_MODE True hai, toh sidha start hoga bina time puche
             if not is_session_active:
                 time_is_right = (curr_hour in SCHEDULED_HOURS and curr_min < 5)
                 session_key = f"{today_str}_{curr_hour}"
@@ -142,7 +149,6 @@ def run_bot():
                     if not TEST_MODE:
                         processed_hours_today.append(session_key)
                     
-                    # Test mode sirf ek baar chalega, fir normally schedule par chalega
                     if TEST_MODE:
                         t_format = "TEST MODE (Instant Run)"
                         TEST_MODE = False
