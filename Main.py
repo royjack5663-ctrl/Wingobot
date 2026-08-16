@@ -6,7 +6,7 @@ from flask import Flask
 from threading import Thread
 
 # ==========================================
-# 1. FLASK WEB SERVER (Render ko chup rakhne ke liye)
+# 1. FLASK WEB SERVER (Render ke liye)
 # ==========================================
 app = Flask(__name__)
 
@@ -15,7 +15,6 @@ def home():
     return "Jack Roy VIP Bot is Running 24/7!"
 
 def run_web():
-    # Render automatically ek PORT assign karta hai
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
 
@@ -31,17 +30,15 @@ TELEGRAM_CHAT_ID = "@damanwolf022"
 CHANNEL_LINK = "https://t.me/damanwolf022"
 API_URL = "https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json"
 
-SCHEDULED_HOURS = [7, 9, 11, 16, 20] # 07:00 AM, 09:00 AM, 11:00 AM, 04:00 PM, 08:00 PM
+SCHEDULED_HOURS = [7, 9, 11, 16, 20]
 MAX_STANDARD_PREDICTIONS = 10
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36",
+    "User-Agent": "Mozilla/5.0",
     "Accept": "application/json"
 }
 
-# Variables
 is_session_active = False
-current_session_hour = None
 prediction_count = 0
 wins = 0
 losses = 0
@@ -51,18 +48,16 @@ pending_prediction = None
 last_processed_period = None
 consecutive_misses = 0
 
+# ⭐ TEST MODE ON ⭐ - Ye lagate hi bot time ka wait nahi karega, turant session chalu karega!
+TEST_MODE = True
+
 def get_ist_time():
     now_utc = datetime.datetime.utcnow()
     return now_utc + datetime.timedelta(hours=5, minutes=30)
 
 def send_telegram(msg):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": msg,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": True
-    }
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "HTML", "disable_web_page_preview": True}
     try:
         requests.post(url, json=payload, timeout=10)
     except Exception as e:
@@ -79,18 +74,17 @@ def get_api_data():
                     return d.get("list", [])
                 elif isinstance(d, list):
                     return d
-    except Exception as e:
-        print(f"API Error: {e}")
+    except Exception:
+        pass
     return []
 
 def calculate_jack_roy_prediction(history_list, misses):
     obs_len = 5
     if misses == 1: obs_len = 4
     elif misses >= 2: obs_len = 3
-
     obs_data = history_list[:obs_len]
     obs_history = ["BIG" if int(x.get("number", 0)) >= 5 else "SMALL" for x in obs_data]
-
+    
     r1 = obs_history[0]
     r2 = obs_history[1] if len(obs_history) > 1 else r1
     r3 = obs_history[2] if len(obs_history) > 2 else r2
@@ -98,10 +92,8 @@ def calculate_jack_roy_prediction(history_list, misses):
     is_chopping = (r1 != r2 and r2 != r3)
     is_streak = (r1 == r2 and r2 == r3)
 
-    if is_chopping:
-        return "SMALL" if r1 == "BIG" else "BIG"
-    elif is_streak:
-        return r1
+    if is_chopping: return "SMALL" if r1 == "BIG" else "BIG"
+    elif is_streak: return r1
     else:
         big_cnt = sum(1 for x in obs_history if x == "BIG")
         small_cnt = sum(1 for x in obs_history if x == "SMALL")
@@ -113,12 +105,12 @@ def calculate_jack_roy_prediction(history_list, misses):
 # 3. MAIN BOT LOOP
 # ==========================================
 def run_bot():
-    global is_session_active, current_session_hour, prediction_count
-    global wins, losses, waiting_for_recovery, consecutive_misses
+    global is_session_active, prediction_count, wins, losses
+    global waiting_for_recovery, consecutive_misses
     global pending_full_period, pending_prediction, last_processed_period
+    global TEST_MODE
 
     send_telegram("🚀 <b>JACK ROY VIP TIMED ENGINE ONLINE</b>")
-    print("Bot Engine Running...")
     processed_hours_today = []
     last_day = None
 
@@ -133,21 +125,30 @@ def run_bot():
                 processed_hours_today = []
                 last_day = today_str
 
-            # Start Scheduled Session
-            if not is_session_active and curr_hour in SCHEDULED_HOURS and curr_min < 5:
+            # MAIN FIX: Agar TEST_MODE True hai, toh sidha start hoga bina time puche
+            if not is_session_active:
+                time_is_right = (curr_hour in SCHEDULED_HOURS and curr_min < 5)
                 session_key = f"{today_str}_{curr_hour}"
-                if session_key not in processed_hours_today:
+
+                if TEST_MODE or (time_is_right and session_key not in processed_hours_today):
                     is_session_active = True
-                    current_session_hour = curr_hour
                     prediction_count = 0
                     wins = 0
                     losses = 0
                     waiting_for_recovery = False
                     consecutive_misses = 0
                     pending_full_period = None
-                    processed_hours_today.append(session_key)
+                    
+                    if not TEST_MODE:
+                        processed_hours_today.append(session_key)
+                    
+                    # Test mode sirf ek baar chalega, fir normally schedule par chalega
+                    if TEST_MODE:
+                        t_format = "TEST MODE (Instant Run)"
+                        TEST_MODE = False
+                    else:
+                        t_format = f"{curr_hour % 12 or 12}:00 {'PM' if curr_hour >= 12 else 'AM'}"
 
-                    t_format = f"{curr_hour % 12 or 12}:00 {'PM' if curr_hour >= 12 else 'AM'}"
                     send_telegram(f"🔥 <b>JACK ROY VIP SESSION STARTED</b>\n⏰ <b>Time:</b> {t_format}")
 
             if is_session_active:
@@ -214,7 +215,5 @@ def run_bot():
         time.sleep(10)
 
 if __name__ == "__main__":
-    # Pehle web server start karega
     keep_alive()
-    # Phir bot ko start karega
     run_bot()
